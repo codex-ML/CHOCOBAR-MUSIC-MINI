@@ -1,5 +1,6 @@
 import aiofiles, aiohttp, asyncio, base64, gc, httpx, io, json
 import logging, numpy as np, os, random, re, sys, textwrap
+from functools import lru_cache
 
 from os import getenv
 from io import BytesIO
@@ -59,7 +60,7 @@ LOG_GROUP_ID = int(getenv("LOG_GROUP_ID", 0))
 
 
 # OPTIONAL VARIABLES
-START_IMAGE_URL = getenv("START_IMAGE_URL", "https://graph.org/file/918101d0ad6b1207e6201.png")
+START_IMAGE_URL = getenv("START_IMAGE_URL", "https://res.cloudinary.com/dydcwsbps/image/upload/fl_preserve_transparency/v1746562001/Always_alive_eo0v7p.jpg")
 
 
 app = Client("App", api_id=API_ID, api_hash=API_HASH, session_string=STRING_SESSION)
@@ -393,7 +394,10 @@ async def get_stream_info(query, streamtype):
                 response = await client.get(
                     f"{api_url}{endpoint}",
                     params={"url": video_link},
-                    headers={"X-API-Key": api_key}
+                    headers={"X-API-Key": api_key},
+                    follow_redirects=True,
+                    trust_env=True 
+   
                 )
                 response.raise_for_status()
                 stream_data = response.json()
