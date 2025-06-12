@@ -319,7 +319,55 @@ def chat_admins_only(mystic):
 async def get_stream_info(query, streamtype):
     """Get stream information using py-yt-search and the new API"""
     try:
-        # First search YouTube using py-yt-search
+        # Check if the query is a URL
+        is_url = query.startswith(('http://', 'https://', 'www.', 'youtube.com', 'youtu.be'))
+        
+        # Use direct API with query parameter if it's not a URL
+        api_url = "https://yt-api-production-fc4c.up.railway.app"
+        api_key = "cbm_e40ef459f0274be1ad541a19f95fd367"
+        endpoint = "/video" if streamtype.lower() == "video" else "/audio"
+        
+        if not is_url:
+            # Direct query to the API
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    response = await client.get(
+                        f"{api_url}{endpoint}",
+                        params={"query": query},
+                        headers={"X-API-Key": api_key},
+                        follow_redirects=True
+                    )
+                    response.raise_for_status()
+                    stream_data = response.json()
+                    
+                    # Get view count and clean it to avoid parsing issues with commas
+                    view_count = str(stream_data.get('view_count', 0))
+                    # Clean up the view count in case it has commas or 'views' text
+                    if ',' in view_count or ' views' in view_count.lower():
+                        view_count = view_count.replace(',', '').split()[0]
+                    
+                    video_id = stream_data.get('id', '')
+                    video_link = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+                    
+                    return {
+                        "id": video_id,
+                        "title": stream_data.get('title'),
+                        "duration": stream_data.get('duration'),
+                        "link": video_link,
+                        "channel": stream_data.get('uploader') or stream_data.get('channel'),
+                        "views": view_count,
+                        "thumbnail": stream_data.get('thumbnail'),
+                        "stream_url": stream_data.get('stream_url'),
+                        "stream_type": stream_data.get('stream_type') or (
+                            "Video" if streamtype.lower() == "video" else "Audio"
+                        )
+                    }
+            except Exception as e:
+                print(f"Direct API query failed: {str(e)}, falling back to search method")
+                # Fall back to search method
+                pass
+        
+        # If direct query failed or we have a URL, use the search method
         from py_yt import Search, VideosSearch
         
         _search = Search(query, limit=1, language='en', region='IN')
@@ -384,8 +432,8 @@ async def get_stream_info(query, streamtype):
             if isinstance(thumbnails, list) and len(thumbnails) > 0:
                 thumbnail_url = thumbnails[0].get('url', '')
         
-        # Now get the stream URL from the new API
-        api_url = "https://yt-api.up.railway.app"
+        # Now get the stream URL from the API using video link
+        api_url = "https://yt-api-production-fc4c.up.railway.app"
         api_key = "cbm_e40ef459f0274be1ad541a19f95fd367"
         endpoint = "/video" if streamtype.lower() == "video" else "/audio"
         
@@ -395,9 +443,7 @@ async def get_stream_info(query, streamtype):
                     f"{api_url}{endpoint}",
                     params={"url": video_link},
                     headers={"X-API-Key": api_key},
-                    follow_redirects=True,
-                    trust_env=True 
-   
+                    follow_redirects=True
                 )
                 response.raise_for_status()
                 stream_data = response.json()
@@ -461,46 +507,6 @@ async def stream_off(chat_id: int):
 async def get_call_status(chat_id):
     pass
 
-
-
-async def fetch_and_save_image(url, save_path):
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    async with aiofiles.open(save_path, mode="wb") as file:
-                        await file.write(await resp.read())
-                    return save_path
-        except Exception as e:
-            logs.error(f"Error downloading image: {str(e)}")
-    return None
-
-# async def get_user_logo(user_id):
-#     try:
-#         user_chat = await bot.get_chat(user_id)
-#         return await bot.download_media(user_chat.photo.big_file_id, f"cache/{user_id}.png")
-#     except Exception:
-#         user_chat = await bot.get_chat(bot.me.id)
-#         return await bot.download_media(user_chat.photo.big_file_id, f"cache/{user_id}.png")
-#     except:
-#         return BytesIO(base64.b64decode("/9j/4AAQSkZJRgABAQEASABIAAD/4gIoSUNDX1BST0ZJTEUAAQEAAAIYAAAAAAIQAABtbnRyUkdCIFhZWiAAAAAAAAAAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf//Z"))
-
-def resize_image(image, max_width, max_height):
-    return image.resize((int(max_width), int(max_height)))
-
-def circle_crop(image, size):
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, size, size), fill=255)
-    
-    output = ImageOps.fit(image, (size, size), centering=(0.5, 0.5))
-    output.putalpha(mask)
-    return output
-
-def random_color():
-    return tuple(random.randint(0, 255) for _ in range(3))
-
-# No longer needed - using direct thumbnail URL from API response
-    
 
 
     
@@ -712,12 +718,16 @@ async def open_help_menu_private(client, message):
     caption = f"""**✅ These are The Commands and
 Their Uses.
 
-/play - play music by name.
-/vplay - play video by name.
+/play - play music by name or URL.
+/vplay - play video by name or URL.
 /pause - pause running stream.
 /resume - resume paused stream.
 /skip - skip to next stream.
-/end - stop stream & clear queue.**"""
+/end - stop stream & clear queue.
+
+Example:
+• /play sidhu moosewala
+• /vplay latest punjabi song**"""
     buttons = InlineKeyboardMarkup(
         [
             [
@@ -796,7 +806,7 @@ Stream Audio Or Video❗...
         streamtype = "Audio" if not message.command[0].startswith("v") else "Video"
         info = await get_stream_info(query, streamtype)
         if not info:
-            return await aux.edit("**❌ Failed to fecth details, try\nanother song.**")
+            return await aux.edit("**❌ Failed to fetch details, try\nanother song or search term.**")
             
         link = info.get("link")
         title = f"[{info.get('title')[:18]}]({link})"
@@ -808,6 +818,9 @@ Stream Audio Or Video❗...
         image = info.get("thumbnail")
         stream_url = info.get("stream_url")
         stream_type = info.get("stream_type")
+        
+        if not stream_url:
+            return await aux.edit("**❌ No stream URL found. Please try a different search term.**")
         
         media_stream = MediaStream(
             media_path=stream_url,
@@ -1025,12 +1038,16 @@ async def open_help_menu_cb(client, query):
     caption = f"""**✅ These are The Commands and
 Their Uses.
 
-/play - play music by name.
-/vplay - play video by name.
+/play - play music by name or URL.
+/vplay - play video by name or URL.
 /pause - pause running stream.
 /resume - resume paused stream.
 /skip - skip to next stream.
-/end - stop stream & clear queue.**"""
+/end - stop stream & clear queue.
+
+Example:
+• /play sidhu moosewala
+• /vplay latest punjabi song**"""
     buttons = InlineKeyboardMarkup(
         [
             [
