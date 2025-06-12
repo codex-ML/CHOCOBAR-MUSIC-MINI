@@ -534,6 +534,14 @@ async def remove_active_media_chat(chat_id):
     if chat_id in active_media_chats:
         active_media_chats.remove(chat_id)
 
+async def fetch_and_save_image(url, save_path):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                async with aiofiles.open(save_path, mode="wb") as file:
+                    await file.write(await resp.read())
+                return save_path
+    return None
 
 
 async def put_queue(
